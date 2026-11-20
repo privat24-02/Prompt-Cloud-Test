@@ -1,0 +1,2 @@
+import { useEffect, useState } from 'react';
+export function ImageThumb({blob,alt,className='',onClick}:{blob:Blob;alt:string;className?:string;onClick?:()=>void}) { const [url,setUrl]=useState(''); useEffect(()=>{const u=URL.createObjectURL(blob);setUrl(u);return()=>URL.revokeObjectURL(u)},[blob]); return url ? <img loading="lazy" src={url} alt={alt} className={className} onClick={onClick}/> : <div className={className} aria-label="جارٍ تحميل الصورة"/>; }
