@@ -71,12 +71,11 @@ export async function connectDrive(){
  const authorized=await authorizeDrive(true);
  if(authorized)await syncNow();
 }
+// GIS token requests can open an account chooser even with prompt:''.
+// Never initiate them during page load: browsers may require user interaction.
 export async function restoreDriveConnection(){
- if(localStorage.getItem(RECONNECT_KEY)!=='1'||stopped||accessToken||authInProgress)return;
- emit({status:'disconnected',message:'جارٍ استعادة اتصال Google Drive...',signedIn:false});
- const authorized=await authorizeDrive(false);
- if(authorized)await syncNow();
- else emit({status:'disconnected',message:'تعذرت استعادة الاتصال تلقائيًا. اضغط ربط Google Drive لإعادة الاتصال.',signedIn:false});
+ if(localStorage.getItem(RECONNECT_KEY)!=='1'||stopped||accessToken)return;
+ emit({status:'disconnected',message:'تم حفظ تفضيل المزامنة. اضغط ربط Google Drive لاستئناف الاتصال بعد تحديث الصفحة.',signedIn:false});
 }
 export function disconnectDrive(){
  stopped=true;accessToken=null;expiresAt=0;rememberConnection(false);
