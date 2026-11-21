@@ -6,6 +6,7 @@ const CLIENT_ID = '350127106951-lve8hjruokid3t6m28hc45eda371qnlq.apps.googleuser
 const SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const FILE_NAME = 'prompt-cloud-sync-v1.json';
 const BASELINE_KEY = 'prompt-cloud-drive-baseline-v1';
+const RECONNECT_KEY = 'prompt-cloud-drive-reconnect-v1';
 // The baseline is local to each browser; it must never be treated as an authoritative cloud lock.
 type TokenClient = { requestAccessToken: (options?: { prompt?: string }) => void };
 type GoogleIdentity = { accounts: { oauth2: { initTokenClient: (options: {client_id:string;scope:string;callback:(response:{access_token?:string;error?:string;expires_in?:number})=>void})=>TokenClient } } };
@@ -32,8 +33,54 @@ const readRemote=async(id:string):Promise<Backup>=>{const r=await request('https
 // intentionally use a different name so they cannot be mistaken for the sync file.
 const archiveRemote=async(id:string)=>{const stamp=new Date().toISOString().replace(/[:.]/g,'-');await request('https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(id)+'/copy?fields=id',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'prompt-cloud-recovery-'+stamp+'.json'})});};
 const upload=async(id:string|null,b:Backup)=>{let fileId=id;if(!fileId){const r=await request('https://www.googleapis.com/drive/v3/files?fields=id',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:FILE_NAME,mimeType:'application/json'})});fileId=(await r.json() as {id:string}).id;}await request('https://www.googleapis.com/upload/drive/v3/files/'+encodeURIComponent(fileId!)+'?uploadType=media',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});return fileId!;};
-export async function connectDrive(){await loadGoogle();await new Promise<void>((resolve,reject)=>{const client=window.google!.accounts.oauth2.initTokenClient({client_id:CLIENT_ID,scope:SCOPE,callback:r=>{if(r.error||!r.access_token){reject(new Error('لم تكتمل موافقة Google.'));return;}accessToken=r.access_token;expiresAt=Date.now()+(r.expires_in||3600)*1000;stopped=false;emit({status:'ready',message:'متصل بـ Google Drive',signedIn:true});resolve();}});client.requestAccessToken({prompt:'consent'});});await syncNow();}
-export function disconnectDrive(){stopped=true;accessToken=null;expiresAt=0;emit({status:'disconnected',message:'تم فصل Google Drive عن هذه الجلسة',signedIn:false});}
+// Persist only the user's preference to reconnect, never OAuth tokens.
+const rememberConnection=(enabled:boolean)=>{if(enabled)localStorage.setItem(RECONNECT_KEY,'1');else localStorage.removeItem(RECONNECT_KEY);};
+let authInProgress=false;
+async function authorizeDrive(interactive:boolean):Promise<boolean>{
+ if(authInProgress)return false;
+ authInProgress=true;
+ try{
+  await loadGoogle();
+  const authorized=await new Promise<boolean>((resolve,reject)=>{
+   const client=window.google!.accounts.oauth2.initTokenClient({
+    client_id:CLIENT_ID,scope:SCOPE,
+    callback:r=>{
+     if(r.error||!r.access_token){
+      if(interactive)reject(new Error('لم تكتمل موافقة Google.'));
+      else resolve(false);
+      return;
+     }
+     accessToken=r.access_token;
+     expiresAt=Date.now()+(r.expires_in||3600)*1000;
+     stopped=false;
+     rememberConnection(true);
+     emit({status:'ready',message:'متصل بـ Google Drive',signedIn:true});
+     resolve(true);
+    }
+   });
+   try{client.requestAccessToken({prompt:interactive?'consent':''});}
+   catch(e){if(interactive)reject(e);else resolve(false);}
+  });
+  return authorized;
+ }catch(e){
+  if(interactive)throw e;
+  return false;
+ }finally{authInProgress=false;}
+}
+export async function connectDrive(){
+ const authorized=await authorizeDrive(true);
+ if(authorized)await syncNow();
+}
+// GIS token requests can open an account chooser even with prompt:''.
+// Never initiate them during page load: browsers may require user interaction.
+export async function restoreDriveConnection(){
+ if(localStorage.getItem(RECONNECT_KEY)!=='1'||stopped||accessToken)return;
+ emit({status:'disconnected',message:'تم حفظ تفضيل المزامنة. اضغط ربط Google Drive لاستئناف الاتصال بعد تحديث الصفحة.',signedIn:false});
+}
+export function disconnectDrive(){
+ stopped=true;accessToken=null;expiresAt=0;rememberConnection(false);
+ emit({status:'disconnected',message:'تم فصل Google Drive عن هذه الجلسة',signedIn:false});
+}
 export async function syncNow(){if(working||stopped||!accessToken)return;working=true;emit({status:'syncing',message:'جارٍ فحص المزامنة...',signedIn:true});try{const local=await createBackup();const localHash=await hash(local);const remote=await findRemote();const baseline=getBaseline();if(!remote){if(baseline){emit({status:'conflict',message:'ملف السحابة السابق غير موجود. لن نعيد إنشاءه تلقائيًا.',signedIn:true});return;}const id=await upload(null,local);setBaseline(id,localHash);emit({status:'ready',message:'تم حفظ المكتبة في Google Drive',signedIn:true});return;}
 const cloud=await readRemote(remote.id);const remoteHash=await hash(cloud);
 if(localHash===remoteHash){setBaseline(remote.id,localHash);emit({status:'ready',message:'المكتبة متزامنة',signedIn:true});return;}

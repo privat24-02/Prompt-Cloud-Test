@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { ArchiveRestore, ArrowRight, Check, ChevronLeft, Copy, Download, FilePlus2, Folder, FolderPlus, ImagePlus, Menu, MoreVertical, Pencil, Plus, Search, Trash2, Upload, X } from 'lucide-react';
 import { db, now, uid } from './db';
-import { connectDrive, disconnectDrive, getSyncState, resolveConflict, startAutoSync, subscribeSync, syncNow } from './services/driveSync';
+import { connectDrive, disconnectDrive, getSyncState, resolveConflict, restoreDriveConnection, startAutoSync, subscribeSync, syncNow } from './services/driveSync';
 import { ImageThumb } from './components/ImageThumb';
 import { copyText } from './services/clipboard';
 import { createBackup, downloadBackup, parseBackup, restoreBackup } from './services/backup';
@@ -14,7 +14,7 @@ function App() {
  const prompts=useLiveQuery(()=>db.prompts.orderBy('updatedAt').reverse().toArray(),[]) || [];
  const [selected,setSelected]=useState<string|null>(null),[search,setSearch]=useState(''),[editor,setEditor]=useState<Editor|null>(null),[view,setView]=useState<Prompt|null>(null),[backupOpen,setBackupOpen]=useState(false),[pending,setPending]=useState<Backup|null>(null),[confirm,setConfirm]=useState<{message:string;run:()=>Promise<void>}|null>(null),[toast,setToast]=useState(''),[busy,setBusy]=useState(false),[image,setImage]=useState<StoredImage|null>(null),[menu,setMenu]=useState<string|null>(null);
  const [sync,setSync]=useState(getSyncState());
- useEffect(()=>{const unsub=subscribeSync(setSync);const stop=startAutoSync();return ()=>{unsub();stop();};},[]);
+ useEffect(()=>{const unsub=subscribeSync(setSync);const stop=startAutoSync();void restoreDriveConnection();return ()=>{unsub();stop();};},[]);
  const inputRef=useRef<HTMLInputElement>(null);
  const notice=(s:string)=>{setToast(s);setTimeout(()=>setToast(''),3600)};
  const run=async(fn:()=>Promise<void>,success:string)=>{setBusy(true);try{await fn();notice(success)}catch(e){notice(e instanceof Error?e.message:'تعذر حفظ التغييرات.')}finally{setBusy(false)}};
